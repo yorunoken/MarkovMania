@@ -1,3 +1,5 @@
+<div align="center">
+
 # MarkovMania
 
 A GTK based app that generates text from custom data.
@@ -21,3 +23,10 @@ A GTK based app that generates text from custom data.
    chmod +x ./target/release/MarkovMania
    ./target/release/MarkovMania
    ```
+
+## Screenshots
+
+
+![Screenshot](.images/app_shot.png)
+
+</div>
