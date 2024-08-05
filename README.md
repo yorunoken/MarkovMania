@@ -1,4 +1,3 @@
-<div align="center">
 
 # MarkovMania
 
@@ -26,6 +25,7 @@ A GTK based app that generates text from custom data.
 
 ## Screenshots
 
+<div align="center">
 
 ![Screenshot](.images/app_shot.png)
 
