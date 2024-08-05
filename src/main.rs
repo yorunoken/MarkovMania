@@ -1,6 +1,6 @@
 use rand::Rng;
-use std::fs::File;
-use std::io::{self, Read};
+use std::fs::{create_dir_all, metadata, File, OpenOptions};
+use std::io::{self, Read, Write};
 
 use druid::widget::{Button, Flex, Label, TextBox};
 use druid::{
@@ -16,7 +16,6 @@ struct AppState {
     custom_sentence: String,
     data_file_path: String,
     status: String,
-    generated_text: String,
 }
 
 struct Delegate;
@@ -29,7 +28,6 @@ fn main() {
     let data = AppState {
         custom_sentence: String::new(),
         data_file_path: String::new(),
-        generated_text: String::new(),
         status: String::new(),
     };
     AppLauncher::with_window(window)
@@ -68,13 +66,9 @@ fn main_ui() -> impl Widget<AppState> {
     .padding(10.0);
 
     let status_label = Label::new(|data: &AppState, _env: &Env| data.status.clone())
-        .with_text_color(Color::rgba8(156, 163, 175, 160))
+        .with_text_size(18.0)
+        .with_text_color(Color::rgb8(153, 255, 102))
         .padding(10.0);
-
-    let generated_text_label =
-        Label::new(|data: &AppState, _env: &Env| data.generated_text.clone())
-            .with_text_size(18.0)
-            .padding(10.0);
 
     let custom_sentence_input = TextBox::new()
         .with_placeholder("Enter custom sentence to generate from (optional)")
@@ -102,7 +96,42 @@ fn main_ui() -> impl Widget<AppState> {
 
                     let max_words = rng.gen_range(1..15);
                     let content = markov_chain.generate(max_words, custom_word);
-                    data.status = content;
+                    data.status = content.clone();
+
+                    match dirs::cache_dir() {
+                        Some(dir) => {
+                            let cache_dir = dir.join("MarkovMania");
+                            if metadata(&cache_dir).is_err() {
+                                if let Err(e) = create_dir_all(&cache_dir) {
+                                    ctx.new_window(show_error_dialog(format!(
+                                        "Error while creating directory: \n{}",
+                                        e
+                                    )));
+                                    return; // Exit early if there's an error
+                                }
+                            }
+
+                            match OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(cache_dir.join("generated.txt"))
+                            {
+                                Ok(mut file) => {
+                                    if let Err(err) = writeln!(file, "{}", content) {
+                                        ctx.new_window(show_error_dialog(format!(
+                                            "Error while creating config file: \n{}",
+                                            err
+                                        )));
+                                    }
+                                }
+                                Err(e) => ctx.new_window(show_error_dialog(format!(
+                                    "Error while creating config file: \n{}",
+                                    e
+                                ))),
+                            }
+                        }
+                        None => ctx.new_window(show_error_dialog("Couldn't get cache directory.")),
+                    }
                 }
                 Err(e) => {
                     data.status = format!("Error while opening file: \n{}", e);
@@ -112,7 +141,17 @@ fn main_ui() -> impl Widget<AppState> {
         })
         .padding(10.0);
 
+    let view_previous_button = Button::new("View Previous Generations")
+        .on_click(|ctx, _data: &mut AppState, _env| ctx.new_window(previous_generations()))
+        .padding(10.0);
+
     Flex::column()
+        .with_child(
+            Flex::row()
+                .with_flex_spacer(1.0)
+                .with_child(view_previous_button)
+                .align_right(),
+        )
         .with_child(title)
         .with_child(desc)
         .with_spacer(20.0)
@@ -124,9 +163,8 @@ fn main_ui() -> impl Widget<AppState> {
         .with_child(custom_sentence_input)
         .with_child(generate_button)
         .with_child(status_label)
-        .with_child(generated_text_label)
         .center()
-        .padding(20.0)
+        .padding(10.0)
 }
 
 fn read_file_to_string(file_path: &str) -> io::Result<String> {
@@ -134,6 +172,56 @@ fn read_file_to_string(file_path: &str) -> io::Result<String> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     Ok(contents)
+}
+
+fn previous_generations() -> WindowDesc<AppState> {
+    match dirs::cache_dir() {
+        Some(dir) => {
+            let cache_dir = dir.join("MarkovMania");
+            if metadata(&cache_dir).is_err() {
+                if let Err(e) = create_dir_all(&cache_dir) {
+                    return show_error_dialog(format!("Error while creating directory: \n{}", e));
+                }
+            }
+
+            match File::open(cache_dir.join("generated.txt")) {
+                Ok(mut file) => {
+                    println!(
+                        "Opening file: {}",
+                        cache_dir.join("generated.txt").display().to_string()
+                    );
+                    let mut content = String::new();
+                    if let Err(err) = file.read_to_string(&mut content) {
+                        return show_error_dialog(format!("Error while reading file: \n{}", err));
+                    }
+
+                    let messages = Label::new(content).with_text_size(18.0).padding(10.0);
+
+                    WindowDesc::new(
+                        Flex::column()
+                            .with_child(
+                                Label::new("Previous generated text")
+                                    .with_text_size(26.0)
+                                    .with_text_color(Color::SILVER)
+                                    .padding(10.0),
+                            )
+                            .with_child(messages)
+                            .with_child(
+                                Button::new("Ok")
+                                    .on_click(|ctx, _data: &mut AppState, _env| {
+                                        ctx.window().close();
+                                    })
+                                    .padding(10.0),
+                            ),
+                    )
+                    .title("Error")
+                    .window_size((700.0, 500.0))
+                }
+                Err(e) => show_error_dialog(format!("Error while creating config file: \n{}", e)),
+            }
+        }
+        None => show_error_dialog("Couldn't get cache directory."),
+    }
 }
 
 fn show_error_dialog<S: Into<String>>(error_message: S) -> WindowDesc<AppState> {
